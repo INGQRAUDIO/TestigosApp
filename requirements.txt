@@ -1,0 +1,8 @@
+streamlit==1.61.1
+streamlit-authenticator==0.4.2
+mutagen>=1.47
+pyyaml>=6.0
+pandas>=2.0
+supabase>=2.0
+boto3>=1.34
+toml>=0.10
