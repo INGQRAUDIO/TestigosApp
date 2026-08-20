@@ -1,0 +1,8 @@
+﻿.venv_pagetestigos/
+__pycache__/
+*.pyc
+.streamlit/secrets.toml
+.env
+*.db
+*.log
+auth_config.yaml
