@@ -1,0 +1,11 @@
+[theme]
+base = "dark"
+primaryColor = "#7bc90f"
+backgroundColor = "#000000"
+secondaryBackgroundColor = "#0d0d0d"
+
+[server]
+enableStaticServing = true
+
+[client]
+showErrorDetails = false
