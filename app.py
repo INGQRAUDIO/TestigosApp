@@ -388,12 +388,33 @@ def main():
     def obtener_carpetas_distintas(coleccion: str, multi_raiz: bool):
         """Todas las rutas de carpeta que existen en el catálogo para esta
         colección (ej. 'DISCO LOVE', 'DISCO LOVE/Remixes', o si hay varias
-        raíces, '2026/DISCO LOVE'). '' representa la raíz sin subcarpetas."""
-        resp = supabase.table("recordings").select("carpeta,raiz").eq("coleccion", coleccion).execute()
-        return sorted({
-            construir_ruta_visible(r.get("raiz") or "", r.get("carpeta") or "", multi_raiz)
-            for r in resp.data
-        })
+        raíces, '2026/DISCO LOVE'). '' representa la raíz sin subcarpetas.
+
+        Paginado con .range(): Supabase limita cada consulta a un máximo de
+        filas (por default ~1000) aunque no se lo pidas explícitamente. Con
+        miles de archivos en el catálogo, un solo .select() sin paginar se
+        queda callado con solo las primeras ~1000 y el resto de las carpetas
+        simplemente no aparecen en la navegación — sin ningún error visible.
+        Esto YA se había arreglado antes, pero se perdió al reescribir esta
+        función para soportar colecciones/raíces — quedó documentado aquí
+        para que no se vuelva a perder en el próximo cambio."""
+        rutas = set()
+        TAM_PAGINA = 1000
+        desde = 0
+        while True:
+            resp = (
+                supabase.table("recordings")
+                .select("carpeta,raiz")
+                .eq("coleccion", coleccion)
+                .range(desde, desde + TAM_PAGINA - 1)
+                .execute()
+            )
+            for r in resp.data:
+                rutas.add(construir_ruta_visible(r.get("raiz") or "", r.get("carpeta") or "", multi_raiz))
+            if len(resp.data) < TAM_PAGINA:
+                break
+            desde += TAM_PAGINA
+        return sorted(rutas)
 
 
     def subcarpetas_de(carpetas: list, ruta_actual: list) -> list:
@@ -486,6 +507,21 @@ def main():
     # cosas juntas en la misma pantalla.
     hijos = subcarpetas_de(carpetas_todas, ruta_actual)
 
+    def ejecutar_paginado(query_builder_fn):
+        """Ejecuta una consulta trayendo TODAS las filas, paginando con .range()
+        para no toparse con el límite silencioso de Supabase (~1000 filas por
+        consulta si no se pagina explícitamente)."""
+        filas = []
+        TAM_PAGINA = 1000
+        desde = 0
+        while True:
+            resp = query_builder_fn().range(desde, desde + TAM_PAGINA - 1).execute()
+            filas.extend(resp.data)
+            if len(resp.data) < TAM_PAGINA:
+                break
+            desde += TAM_PAGINA
+        return filas
+
     df = pd.DataFrame()
     if not hijos:
         # carpeta hoja: solo archivos que viven exactamente aquí, dentro de
@@ -493,11 +529,14 @@ def main():
         # es True y todavía no se eligió ninguna raíz — pero en ese caso
         # 'hijos' no estaría vacío, así que aquí siempre hay una raíz definida)
         raiz_sel, carpeta_sel = descomponer_ruta(ruta_actual, multi_raiz, nombres_raiz)
-        query = construir_query_base().eq("coleccion", coleccion_actual)
-        if raiz_sel is not None:
-            query = query.eq("raiz", raiz_sel)
-        query = query.eq("carpeta", carpeta_sel or "")
-        datos = query.execute().data
+
+        def _query_archivos_carpeta():
+            q = construir_query_base().eq("coleccion", coleccion_actual)
+            if raiz_sel is not None:
+                q = q.eq("raiz", raiz_sel)
+            return q.eq("carpeta", carpeta_sel or "")
+
+        datos = ejecutar_paginado(_query_archivos_carpeta)
         df = pd.DataFrame(datos)
         if not df.empty:
             df = (
